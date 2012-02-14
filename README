@@ -1,0 +1,2 @@
+This is a tool to take OSM-XML data downloaded via eg. XAPI requests and put it into another
+instance of rails_port
