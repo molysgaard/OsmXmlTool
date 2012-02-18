@@ -25,10 +25,11 @@ genOsmTag tags = Map.fromList . catMaybes $ map help tags
         help _ = Nothing
 
 getAttr :: String -> [Attribute] -> String
-getAttr key [] = error $ "Could not find attribute: " ++ show key
+getAttr key [] = "" --error $ "Could not find attribute: " ++ show key
 getAttr key ((N k, AttValue [Left v]):kvs)
   | key == k = v
   | otherwise = getAttr key kvs
+getAttr key _ = ""
 
 genOsmWayMembs :: [Content Posn] -> [Integer]
 genOsmWayMembs nodes = map (\(CElem (Elem (N "nd") attrs _) _) -> read $ getAttr "ref" attrs) nodes
@@ -38,19 +39,19 @@ genOsmRelationMembs membs = map (\(CElem (Elem (N "member") attrs _) _) -> (read
 
 genOsmNode :: Content Posn -> Node
 genOsmNode (CElem (Elem n attrs tags) _) = Node { nId = read $ getAttr "id" attrs
-                                              , nVer = read $ getAttr "version" attrs
+                                              --, nVer = read $ getAttr "version" attrs
                                               , lat = read $ getAttr "lat" attrs
                                               , lon = read $ getAttr "lon" attrs
                                               , nTags = genOsmTag tags }
 
 genOsmWay :: Content Posn -> Way
 genOsmWay way@(CElem (Elem n attrs _) _) = Way { wId = read $ getAttr "id" attrs
-                                               , wVer = read $ getAttr "version" attrs
+                                               --, wVer = read $ getAttr "version" attrs
                                                , wMembs = genOsmWayMembs ((tag "way" /> tag "nd") way)
                                                , wTags = genOsmTag ((tag "way" /> tag "tag") way) }
 genOsmRelation :: Content Posn -> Relation
 genOsmRelation rel@(CElem (Elem n attrs _) _) = Relation { rId = read $ getAttr "id" attrs
-                                                         , rVer = read $ getAttr "version" attrs
+                                                         --, rVer = read $ getAttr "version" attrs
                                                          , rMembs = genOsmRelationMembs ((tag "relation" /> tag "member") rel)
                                                          , rTags = genOsmTag ((tag "relation" /> tag "tag") rel) }
 

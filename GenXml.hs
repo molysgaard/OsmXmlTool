@@ -11,7 +11,7 @@ class Print str where
   pp :: str -> String
 
 instance Print String where
-  pp s = init . (drop 1) $ show s
+  pp s = s
 
 instance Print Integer where
   pp i = show i
