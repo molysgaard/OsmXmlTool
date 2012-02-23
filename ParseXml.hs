@@ -8,7 +8,15 @@ import qualified Text.XML.HaXml.Pretty as Pp
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes)
 
+import Network.CGI.Protocol (maybeRead)
+
 import GenNew
+
+readOrFail :: (Read a) => String -> a
+readOrFail str
+  | (Just a) <- maybeRead str
+  = a
+  | otherwise = error $ "read: " ++ str
 
 --parseXml :: String -> File
 parseXml xmlString =
@@ -25,33 +33,35 @@ genOsmTag tags = Map.fromList . catMaybes $ map help tags
         help _ = Nothing
 
 getAttr :: String -> [Attribute] -> String
-getAttr key [] = "" --error $ "Could not find attribute: " ++ show key
+getAttr key [] = "not found" --error $ "Could not find attribute: " ++ show key
 getAttr key ((N k, AttValue [Left v]):kvs)
   | key == k = v
   | otherwise = getAttr key kvs
-getAttr key _ = ""
+getAttr key ((N k, v):kvs)
+  | key == k = show v
+  | otherwise = getAttr key kvs
 
 genOsmWayMembs :: [Content Posn] -> [Integer]
-genOsmWayMembs nodes = map (\(CElem (Elem (N "nd") attrs _) _) -> read $ getAttr "ref" attrs) nodes
+genOsmWayMembs nodes = map (\(CElem (Elem (N "nd") attrs _) _) -> readOrFail $ getAttr "ref" attrs) nodes
 
 genOsmRelationMembs :: [Content Posn] -> [(Integer,String)]
-genOsmRelationMembs membs = map (\(CElem (Elem (N "member") attrs _) _) -> (read (getAttr "ref" attrs), getAttr "type" attrs)) membs
+genOsmRelationMembs membs = map (\(CElem (Elem (N "member") attrs _) _) -> (readOrFail (getAttr "ref" attrs), getAttr "type" attrs)) membs
 
 genOsmNode :: Content Posn -> Node
-genOsmNode (CElem (Elem n attrs tags) _) = Node { nId = read $ getAttr "id" attrs
+genOsmNode (CElem (Elem n attrs tags) _) = Node { nId = readOrFail $ getAttr "id" attrs
                                               --, nVer = read $ getAttr "version" attrs
-                                              , lat = read $ getAttr "lat" attrs
-                                              , lon = read $ getAttr "lon" attrs
+                                              , lat = readOrFail $ getAttr "lat" attrs
+                                              , lon = readOrFail $ getAttr "lon" attrs
                                               , nTags = genOsmTag tags }
 
 genOsmWay :: Content Posn -> Way
-genOsmWay way@(CElem (Elem n attrs _) _) = Way { wId = read $ getAttr "id" attrs
-                                               --, wVer = read $ getAttr "version" attrs
+genOsmWay way@(CElem (Elem n attrs _) _) = Way { wId = readOrFail $ getAttr "id" attrs
+                                               --, wVer = readOrFail $ getAttr "version" attrs
                                                , wMembs = genOsmWayMembs ((tag "way" /> tag "nd") way)
                                                , wTags = genOsmTag ((tag "way" /> tag "tag") way) }
 genOsmRelation :: Content Posn -> Relation
-genOsmRelation rel@(CElem (Elem n attrs _) _) = Relation { rId = read $ getAttr "id" attrs
-                                                         --, rVer = read $ getAttr "version" attrs
+genOsmRelation rel@(CElem (Elem n attrs _) _) = Relation { rId = readOrFail $ getAttr "id" attrs
+                                                         --, rVer = readOrFail $ getAttr "version" attrs
                                                          , rMembs = genOsmRelationMembs ((tag "relation" /> tag "member") rel)
                                                          , rTags = genOsmTag ((tag "relation" /> tag "tag") rel) }
 
