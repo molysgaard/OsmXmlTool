@@ -1,4 +1,4 @@
-import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec hiding (newline)
 import Text.ParserCombinators.Parsec.Number
 import Arc
 import GenNew hiding (St)
@@ -10,7 +10,9 @@ import Text.XML.HaXml hiding (x)
 import Text.XML.HaXml.Pretty
 import GenXml
 import Control.Monad.State (runState)
-import System
+import System.Environment
+
+newline = try (string "\r\n") <|> try (string "\n")
 
 data St = St { x :: LatLon
              , curId :: Integer
@@ -50,6 +52,8 @@ parseLatLon = do
     lon <- parseLon
     return (LatLon lat lon)
 
+parseLenthUnit = try (string "FT")
+
 parseHeight :: (Num a, Floating a) => OpenAir (a, String)
 parseHeight = do
     let gnd = ((string "GND" <|> string "MSL") >> return (0,"AGL"))
@@ -60,6 +64,8 @@ parseHeight = do
               return (num, "FL")
         r = do
               num <- parseFloat
+              unit <- optional parseLenthUnit
+              space
               ref <- (try (string "MSL" >> return "AMSL") <|> try (string "AGL") <|> (string "GND" >> return "AGL"))
               return (num, ref)
     ans <- try r <|> try fl <|> try gnd <|> unl
@@ -88,7 +94,7 @@ parseClass = do
     return c
 
 parseName :: OpenAir String
-parseName = string "AN " >> manyTill anyChar newline
+parseName = try (string "AN " >> manyTill anyChar newline) <|> try (string "TO " >> manyTill anyChar newline) <|> try (manyTill anyChar newline)
 
 parseSet :: OpenAir [LatLon]
 parseSet = do
@@ -96,8 +102,25 @@ parseSet = do
     (try parseX) <|> parseDir
     return []
 
-parseDir = do
-    string "D="
+parseDir = try parseDirV1 <|> try parseDirV2
+
+parseDirV1 = do
+    char 'D'
+    optional space
+    char '='
+    optional space
+    c <- oneOf "+-"
+    newline
+    st <- getState
+    case c of
+      '-' -> setState (st {dir = False})
+      '+' -> setState (st {dir = True})
+
+parseDirV2 = do
+    char '='
+    optional space
+    char 'D'
+    optional space
     c <- oneOf "+-"
     newline
     st <- getState
@@ -107,7 +130,10 @@ parseDir = do
 
 parseX :: OpenAir ()
 parseX = do
-    string "X="
+    char 'X'
+    optional space
+    char '='
+    optional space
     st <- getState
     ll <- parseLatLon
     newline
@@ -178,6 +204,7 @@ parseArc2 = do
     string "DB "
     ll1 <- parseLatLon
     char ','
+    optional space
     ll2 <- parseLatLon
     newline
     st <- getState
@@ -190,7 +217,8 @@ parseCoord :: OpenAir [LatLon]
 parseCoord = do
     string "DP "
     ll <- parseLatLon
-    newline
+    optional $ many space
+    try commentLine <|> try (newline >> return '')
     return . return $ ll
 
 parseAt :: OpenAir ()
@@ -309,6 +337,7 @@ main = do
                 , curId = 0
                 , dir = True}
     args <- getArgs
+    putStrLn . show $ args
     input <- readFile (args !! 0)
     let ret = runParser parseFile st (args !! 0) input
     case ret of
