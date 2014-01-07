@@ -1,5 +1,5 @@
-import Text.ParserCombinators.Parsec hiding (newline)
-import Text.ParserCombinators.Parsec.Number
+import Text.Parsec hiding (newline)
+import Text.Parsec.Perm
 import Arc
 import GenNew hiding (St)
 import qualified Data.Map as Map
@@ -12,20 +12,42 @@ import GenXml
 import Control.Monad.State (runState)
 import System.Environment
 
-newline = try (string "\r\n") <|> try (string "\n")
-
 data St = St { x :: LatLon
              , curId :: Integer
              , file :: File
              , dir :: Bool
              }
-type OpenAir a = GenParser Char St a 
+type OpenAir a = Parsec String St a 
 
-parseFloat :: (Num a, Floating a) => OpenAir a
-parseFloat = try floating <|> (liftM fromIntegral decimal)
+strings :: [String] -> OpenAir String
+strings (s:ss) = foldl (\st v -> st <|> try (string v)) (try (string s)) ss
 
-parseNums :: OpenAir [Double]
-parseNums = sepBy1 parseFloat (char ':')
+newline = do
+    optional spaces
+    try (string "\r\n") <|> (string "\n")
+    return "\n"
+
+commentLine = do
+    optional spaces
+    char '*'
+    c <- manyTill anyChar newline
+    return c
+
+noise = try commentLine <|> newline
+
+--commaNumber :: (Num a, Floating a) => OpenAir a
+commaNumber = do
+    pre <- many1 digit
+    char '.'
+    post <- many1 digit
+    return . read $ (pre++"."++post)
+
+--decimalNumber :: (Num a, Floating a) => OpenAir a
+decimalNumber = many1 digit >>= \d -> return (read d)
+
+parseFloat = try commaNumber <|> decimalNumber
+
+parseNums = sepBy parseFloat (char ':')
 
 parseLat = do
     nums <- parseNums
@@ -54,7 +76,7 @@ parseLatLon = do
 
 parseLenthUnit = try (string "FT")
 
-parseHeight :: (Num a, Floating a) => OpenAir (a, String)
+--parseHeight :: (Num a, Floating a) => OpenAir (a, String)
 parseHeight = do
     let gnd = ((string "GND" <|> string "MSL") >> return (0,"AGL"))
         unl = (string "UNL" >> return (999, "FL"))
@@ -72,30 +94,26 @@ parseHeight = do
     return ans
 
 parseLowerHeight = do
-    string "AL "
+    string "AL"
+    spaces
     h <- parseHeight
-    newline
     return h
 
 parseUpperHeight = do
-    string "AH "
+    string "AH"
+    spaces
     h <- parseHeight
-    newline
     return h
-
-strings :: [String] -> OpenAir String
-strings (s:ss) = foldl (\st v -> st <|> try (string v)) (try (string s)) ss
 
 parseClass :: OpenAir String
 parseClass = do
-    string "AC "
-    c <- strings ["CTR","TMZ","GP","R","Q","P","A","B","C","D","E","F","G","W"]
-    newline
-    return c
+    string "AC"
+    spaces
+    strings ["CTR","TMZ","GP","R","Q","P","A","B","C","D","E","F","G","W"]
 
 parseName :: OpenAir String
-parseName = try (string "AN " >> manyTill anyChar newline) <|> try (string "TO " >> manyTill anyChar newline) <|> try (manyTill anyChar newline)
-
+parseName = try (string "AN" >> spaces >> manyTill anyChar (lookAhead . try $ newline)) <|>
+            try (string "TO" >> spaces >> manyTill anyChar (lookAhead . try $ newline))
 parseSet :: OpenAir [LatLon]
 parseSet = do
     string "V "
@@ -106,11 +124,10 @@ parseDir = try parseDirV1 <|> try parseDirV2
 
 parseDirV1 = do
     char 'D'
-    optional space
+    optional spaces
     char '='
-    optional space
+    optional spaces
     c <- oneOf "+-"
-    newline
     st <- getState
     case c of
       '-' -> setState (st {dir = False})
@@ -118,11 +135,10 @@ parseDirV1 = do
 
 parseDirV2 = do
     char '='
-    optional space
+    optional spaces
     char 'D'
-    optional space
+    optional spaces
     c <- oneOf "+-"
-    newline
     st <- getState
     case c of
       '-' -> setState (st {dir = False})
@@ -131,12 +147,11 @@ parseDirV2 = do
 parseX :: OpenAir ()
 parseX = do
     char 'X'
-    optional space
+    optional spaces
     char '='
-    optional space
+    optional spaces
     st <- getState
     ll <- parseLatLon
-    newline
     setState (st {x = ll})
 
 newId :: OpenAir Integer
@@ -181,32 +196,37 @@ createArea lls tags = do
 
 parseCircle :: OpenAir [[LatLon]]
 parseCircle = do
-    string "DC "
+    string "DC"
+    spaces
     d <- parseFloat
-    newline
     st <- getState
     return $ [genArc (x st) (1.852e3*d) (Deg 0) (Deg 346) True 25]
 
 parseArc1 :: OpenAir [LatLon]
 parseArc1 = do
-    string "DA "
+    string "DA"
+    spaces
     r <- parseFloat
+    optional spaces
     char ','
+    optional spaces
     tc1 <- parseFloat
+    optional spaces
     char ','
+    optional spaces
     tc2 <- parseFloat
-    newline
     st <- getState
     return $ genArc (x st) (1.852e3*r) (Deg tc1) (Deg tc2) (dir st) 25
 
 parseArc2 :: OpenAir [LatLon]
 parseArc2 = do
-    string "DB "
+    string "DB"
+    spaces
     ll1 <- parseLatLon
+    optional spaces
     char ','
-    optional space
+    optional spaces
     ll2 <- parseLatLon
-    newline
     st <- getState
     let (Deg tc1) = courceBetweenPoints (x st) ll1
         (Deg tc2) = courceBetweenPoints (x st) ll2
@@ -215,102 +235,110 @@ parseArc2 = do
 
 parseCoord :: OpenAir [LatLon]
 parseCoord = do
-    string "DP "
+    string "DP"
+    spaces
     ll <- parseLatLon
-    optional $ many space
-    try commentLine <|> try (newline >> return '')
+    optional spaces
     return . return $ ll
 
 parseAt :: OpenAir ()
 parseAt = do
-    string "AT "
+    string "AT"
+    spaces
     parseLatLon
     return ()
 
-parseSegment :: OpenAir [[LatLon]]
-parseSegment = do
-    let arc1 = parseArc1
-        arc2 = parseArc2
-        coord = parseCoord
-        circle = parseCircle
-        set = parseSet
-        cm = try (commentLine >> return [])
-    optional cm
-    many (try set)
-    optional cm
-    (try circle) <|> (many1 (cm <|> try set <|> try arc1 <|> try arc2 <|> coord))
+parseSegments :: OpenAir [[LatLon]]
+parseSegments = 
+    let null = noise >> return []
+        segs = choice (map try [parseSet, parseArc1, parseArc2, parseCoord, null])
+    in many1 segs
+
+parseLine p = do
+    x <- p
+    noise
+    return x
 
 parseAirspace :: OpenAir ()
 parseAirspace = do
-    st <- getState
-    --setState (st {dir = True})
-    let cm = optional commentLine
-    aClass <- parseClass
-    try cm
-    aName <- parseName -- parseName parses a newline
-    try cm
-    (lNum,lRef) <- parseLowerHeight
-    try cm
-    (uNum,uRef) <- parseUpperHeight
-    try cm
-    lls <- parseSegment
-    let tags = Map.fromList [("airspace","yes")
-                            ,("name",aName)
-                            ,("airspace:class","ft")
-                            ,("height:lower",show lNum)
-                            ,("height:lower:ref",lRef)
-                            ,("height:lower:unit","ft")
-                            ,("height:upper",show uNum)
-                            ,("height:upper:ref",uRef)
-                            ,("height:upper:unit","ft")]
-    createArea (concat lls) tags
-
-commentLine = do
-    char '*'
-    manyTill anyChar newline
+    aClass <- parseLine parseClass
+    --let header = permute ((,,) <$$> try (parseLine parseName)
+    --                            <||> try (parseLine parseLowerHeight)
+    --                            <||> try (parseLine parseUpperHeight))
+    --(aName, (lNum, lRef), (uNum, uRef)) <- header
     return ()
-
-emptyLine = newline >> return ()
-
+    --lls <- parseSegments
+    --let tags = Map.fromList [("airspace","yes")
+    --                        ,("name",aName)
+    --                        ,("airspace:class","ft")
+    --                        ,("height:lower",show lNum)
+    --                        ,("height:lower:ref",lRef)
+    --                        ,("height:lower:unit","ft")
+    --                        ,("height:upper",show uNum)
+    --                        ,("height:upper:ref",uRef)
+    --                        ,("height:upper:unit","ft")]
+    --createArea (concat lls) tags
 
 parseFile = do
-    manyTill (try emptyLine <|> try commentLine <|> try parseAirspace) eof
+    manyTill ((try newline >> return ()) <|> (try commentLine >> return ()) <|> try parseAirspace) eof
     st <- getState
     return (file st)
     
 
---testAs1 = unlines ["AC R",
---                  "AN ED-R37B NORDHORN",
---                  "AL GND",
---                  "AH 2500MSL",
+testC = unlines ["* hahah"]
+
+testAs1 = unlines ["AC R",
+                  "AN ED-R37B NORDHORN",
+                  "AL GND",
+                  "AH 2500MSL"]
 --                  "V X=52:26:00 N 007:12:00 E",
 --                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E"]
---
---testAs = unlines ["AC R",
---                  "AN ED-R37B NORDHORN",
---                  "AL GND",
---                  "AH 2500MSL",
---                  "DP 52:43:05 N 007:03:49 E",
---                  "DP 52:41:00 N 007:15:10 E",
---                  "DP 52:29:31 N 007:17:48 E",
---                  "V D=-",
---                  "V X=52:26:00 N 007:12:00 E",
---                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
---                  "DP 52:26:00 N 007:03:39 E",
---                  "DP 52:39:59 N 007:03:27 E",
---                  "AC R",
---                  "AN GRESSS!!!",
---                  "AL GND",
---                  "AH 2500MSL",
---                  "DP 52:43:05 N 007:03:49 E",
---                  "DP 52:41:00 N 007:15:10 E",
---                  "DP 52:29:31 N 007:17:48 E",
---                  "V D=-",
---                  "V X=52:26:00 N 007:12:00 E",
---                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
---                  "DP 52:26:00 N 007:03:39 E",
---                  "DP 52:39:59 N 007:03:27 E"]
---
+testAs = unlines ["AC R",
+                  "AN ED-R37B NORDHORN",
+                  "AL GND",
+                  "AH 2500MSL",
+                  "DP 52:43:05 N 007:03:49 E",
+                  "DP 52:41:00 N 007:15:10 E",
+                  "DP 52:29:31 N 007:17:48 E",
+                  "V D=-",
+                  "V X=52:26:00 N 007:12:00 E",
+                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
+                  "DP 52:26:00 N 007:03:39 E",
+                  "DP 52:39:59 N 007:03:27 E",
+                  "AC R",
+                  "AN GRESSS!!!",
+                  "AL GND",
+                  "AH 2500MSL",
+                  "DP 52:43:05 N 007:03:49 E",
+                  "DP 52:41:00 N 007:15:10 E",
+                  "DP 52:29:31 N 007:17:48 E",
+                  "V D=-",
+                  "V X=52:26:00 N 007:12:00 E",
+                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
+                  "DP 52:26:00 N 007:03:39 E",
+                  "DP 52:39:59 N 007:03:27 E"]
+
+testSeg = unlines ["DP 52:43:05 N 007:03:49 E",
+                  "DP 52:41:00 N 007:15:10 E",
+                  "DP 52:29:31 N 007:17:48 E",
+                  "V D=-",
+                  "V X=52:26:00 N 007:12:00 E",
+                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
+                  "DP 52:26:00 N 007:03:39 E",
+                  "DP 52:39:59 N 007:03:27 E",
+                  "AC R",
+                  "AN GRESSS!!!",
+                  "AL GND",
+                  "AH 2500MSL",
+                  "DP 52:43:05 N 007:03:49 E",
+                  "DP 52:41:00 N 007:15:10 E",
+                  "DP 52:29:31 N 007:17:48 E",
+                  "V D=-",
+                  "V X=52:26:00 N 007:12:00 E",
+                  "DB 52:29:31 N 007:17:48 E,52:26:00 N 007:03:50 E",
+                  "DP 52:26:00 N 007:03:39 E",
+                  "DP 52:39:59 N 007:03:27 E"]
+
 --test = do
 --    let st = St { x = LatLon 0 0
 --                , file = File [] [] []
@@ -337,7 +365,6 @@ main = do
                 , curId = 0
                 , dir = True}
     args <- getArgs
-    putStrLn . show $ args
     input <- readFile (args !! 0)
     let ret = runParser parseFile st (args !! 0) input
     case ret of

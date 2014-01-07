@@ -16,6 +16,6 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 executable OsmXmlTool
-  main-is: ParseOpenAir.hs
+  main-is: OpenAir.hs
   -- other-modules:       
-  build-depends:       base ==4.5.*, containers ==0.4.*, bytestring ==0.9.*, mtl, HaXml, parsec, parsec-numbers
+  build-depends:       base, containers, bytestring, mtl, HaXml, parsec, text

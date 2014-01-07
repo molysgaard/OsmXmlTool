@@ -4,7 +4,7 @@ floatMod a b = let whole = fromIntegral $ truncate (a/b)
                in a - (whole * b)
 
 data PRad = PRad Double Double
-data LatLon = LatLon Double Double
+data LatLon = LatLon Double Double deriving (Eq, Show, Read)
 pRadToLat (PRad a b) = LatLon (a/pi*180) (b/pi*180)
 latToPRad (LatLon a b) = PRad (a/180*pi) (b/180*pi)
 

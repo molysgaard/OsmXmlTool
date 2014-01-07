@@ -1,7 +1,7 @@
 module GenNew where
 
 import Data.Map as Map
-import Control.Monad (liftM)
+--import Control.Monad (liftM)
 import Control.Monad.State
 import Data.Maybe (catMaybes)
 
@@ -31,9 +31,13 @@ genNewIds (File ns ws rs) = do
     r <- mapM newRel rs
     return $ File n w r
 
+addOsmId :: (Show a) => a -> Map String String -> Map String String
 addOsmId i m = Map.insert "OSM-ID" (show i) m
+
+addOsmVer :: (Show a) => a -> Map String String -> Map String String
 addOsmVer v m = Map.insert "OSM-VER" (show v) m
 --addTags i v m = addOsmVer v $ addOsmId i m
+
 addTags i v m = addOsmId i m
 
 newNode :: Node -> St Node
